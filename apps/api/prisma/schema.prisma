@@ -1,0 +1,475 @@
+// ===========================================
+// LMS PERÚ - Prisma Schema
+// ===========================================
+// Multi-tenant schema with Row Level Security
+// ===========================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================================
+// ENUMS
+// ===========================================
+
+enum Role {
+  SUPER_ADMIN
+  INSTITUTION_ADMIN
+  ACADEMIC_COORDINATOR
+  TEACHER
+  TUTOR
+  STUDENT
+  PARENT
+  AUXILIARY
+}
+
+enum InstitutionType {
+  INICIAL
+  PRIMARIA
+  SECUNDARIA
+  PRIMARIA_SECUNDARIA
+  COMPLETO
+}
+
+enum PeriodType {
+  BIMESTRAL
+  TRIMESTRAL
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  TRANSFERRED
+  WITHDRAWN
+  GRADUATED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  JUSTIFIED
+}
+
+enum GradeScale {
+  AD // Logro destacado
+  A  // Logro esperado
+  B  // En proceso
+  C  // En inicio
+}
+
+// ===========================================
+// TENANT / INSTITUTIONS
+// ===========================================
+
+model Institution {
+  id          String          @id @default(uuid())
+  code        String          @unique // Código modular MINEDU
+  name        String
+  slug        String          @unique // Para subdomain
+  type        InstitutionType
+  ugel        String?
+  dre         String?
+  address     String?
+  phone       String?
+  email       String?
+  logo        String?
+  settings    Json            @default("{}")
+  isActive    Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  // Relations
+  users         User[]
+  academicYears AcademicYear[]
+  grades        Grade[]
+  areas         CurriculumArea[]
+
+  @@map("institutions")
+}
+
+// ===========================================
+// USERS & AUTH
+// ===========================================
+
+model User {
+  id              String    @id @default(uuid())
+  institutionId   String
+  email           String
+  passwordHash    String
+  dni             String?
+  firstName       String
+  lastName        String
+  phone           String?
+  avatar          String?
+  role            Role
+  isActive        Boolean   @default(true)
+  emailVerified   Boolean   @default(false)
+  mfaEnabled      Boolean   @default(false)
+  mfaSecret       String?
+  lastLoginAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  institution     Institution      @relation(fields: [institutionId], references: [id])
+  refreshTokens   RefreshToken[]
+  passwordResets  PasswordReset[]
+  sessions        Session[]
+
+  // As teacher
+  courseAssignments CourseAssignment[] @relation("TeacherAssignments")
+  tutoredSections   Section[]          @relation("SectionTutor")
+
+  // As student
+  studentProfile  Student?
+
+  // As parent
+  children        ParentStudent[]    @relation("ParentRelation")
+
+  @@unique([institutionId, email])
+  @@unique([institutionId, dni])
+  @@index([institutionId])
+  @@index([email])
+  @@map("users")
+}
+
+model Student {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  birthDate       DateTime?
+  gender          String?
+  bloodType       String?
+  emergencyContact String?
+  emergencyPhone  String?
+  medicalNotes    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  user            User          @relation(fields: [userId], references: [id])
+  enrollments     Enrollment[]
+  parents         ParentStudent[] @relation("StudentRelation")
+  attendances     Attendance[]
+  grades          GradeRecord[]
+
+  @@map("students")
+}
+
+model ParentStudent {
+  id          String   @id @default(uuid())
+  parentId    String
+  studentId   String
+  relationship String  // padre, madre, apoderado, tutor legal
+  isPrimary   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  parent      User     @relation("ParentRelation", fields: [parentId], references: [id])
+  student     Student  @relation("StudentRelation", fields: [studentId], references: [id])
+
+  @@unique([parentId, studentId])
+  @@map("parent_students")
+}
+
+model RefreshToken {
+  id          String   @id @default(uuid())
+  userId      String
+  token       String   @unique
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  revokedAt   DateTime?
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("refresh_tokens")
+}
+
+model PasswordReset {
+  id          String   @id @default(uuid())
+  userId      String
+  token       String   @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@map("password_resets")
+}
+
+model Session {
+  id          String   @id @default(uuid())
+  userId      String
+  ipAddress   String?
+  userAgent   String?
+  lastActive  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// ===========================================
+// RBAC - ROLES & PERMISSIONS
+// ===========================================
+
+model Permission {
+  id          String   @id @default(uuid())
+  name        String   @unique // e.g., "users:create"
+  description String?
+  createdAt   DateTime @default(now())
+
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model CustomRole {
+  id            String   @id @default(uuid())
+  institutionId String?  // null = global role
+  name          String
+  slug          String
+  description   String?
+  isSystem      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  permissions   RolePermission[]
+
+  @@unique([institutionId, slug])
+  @@map("custom_roles")
+}
+
+model RolePermission {
+  id           String     @id @default(uuid())
+  roleId       String
+  permissionId String
+  scope        String     @default("institution") // own, section, grade, institution, global
+
+  role         CustomRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+// ===========================================
+// ACADEMIC STRUCTURE
+// ===========================================
+
+model AcademicYear {
+  id            String     @id @default(uuid())
+  institutionId String
+  year          Int
+  name          String     // "2025"
+  startDate     DateTime
+  endDate       DateTime
+  periodType    PeriodType
+  isActive      Boolean    @default(false)
+  isClosed      Boolean    @default(false)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  // Relations
+  institution   Institution      @relation(fields: [institutionId], references: [id])
+  periods       AcademicPeriod[]
+  sections      Section[]
+  enrollments   Enrollment[]
+  assignments   CourseAssignment[]
+
+  @@unique([institutionId, year])
+  @@index([institutionId])
+  @@map("academic_years")
+}
+
+model AcademicPeriod {
+  id             String       @id @default(uuid())
+  academicYearId String
+  name           String       // "I Bimestre", "II Bimestre"
+  number         Int          // 1, 2, 3, 4
+  startDate      DateTime
+  endDate        DateTime
+  isClosed       Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id])
+  grades         GradeRecord[]
+
+  @@unique([academicYearId, number])
+  @@map("academic_periods")
+}
+
+model Grade {
+  id            String   @id @default(uuid())
+  institutionId String
+  level         String   // inicial, primaria, secundaria
+  name          String   // "1°", "2°", "3°"
+  orderNum      Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  institution   Institution @relation(fields: [institutionId], references: [id])
+  sections      Section[]
+
+  @@unique([institutionId, level, name])
+  @@index([institutionId])
+  @@map("grades")
+}
+
+model Section {
+  id             String   @id @default(uuid())
+  gradeId        String
+  academicYearId String
+  name           String   // "A", "B", "C"
+  tutorId        String?
+  capacity       Int      @default(30)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  grade          Grade           @relation(fields: [gradeId], references: [id])
+  academicYear   AcademicYear    @relation(fields: [academicYearId], references: [id])
+  tutor          User?           @relation("SectionTutor", fields: [tutorId], references: [id])
+  enrollments    Enrollment[]
+  assignments    CourseAssignment[]
+
+  @@unique([gradeId, academicYearId, name])
+  @@map("sections")
+}
+
+model Enrollment {
+  id             String           @id @default(uuid())
+  studentId      String
+  sectionId      String
+  academicYearId String
+  enrollmentDate DateTime
+  status         EnrollmentStatus @default(ACTIVE)
+  previousSchool String?
+  observations   String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  student        Student      @relation(fields: [studentId], references: [id])
+  section        Section      @relation(fields: [sectionId], references: [id])
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id])
+  attendances    Attendance[]
+  grades         GradeRecord[]
+
+  @@unique([studentId, academicYearId])
+  @@index([sectionId])
+  @@map("enrollments")
+}
+
+// ===========================================
+// CURRICULUM
+// ===========================================
+
+model CurriculumArea {
+  id            String   @id @default(uuid())
+  institutionId String
+  code          String   // MAT, COM, CYT
+  name          String   // Matemática, Comunicación
+  level         String   // inicial, primaria, secundaria
+  hoursPerWeek  Int      @default(0)
+  isMandatory   Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  institution   Institution    @relation(fields: [institutionId], references: [id])
+  competencies  Competency[]
+  assignments   CourseAssignment[]
+
+  @@unique([institutionId, code, level])
+  @@map("curriculum_areas")
+}
+
+model Competency {
+  id          String   @id @default(uuid())
+  areaId      String
+  code        String
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  area        CurriculumArea @relation(fields: [areaId], references: [id])
+  grades      GradeRecord[]
+
+  @@unique([areaId, code])
+  @@map("competencies")
+}
+
+model CourseAssignment {
+  id             String   @id @default(uuid())
+  teacherId      String
+  sectionId      String
+  areaId         String
+  academicYearId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  teacher        User           @relation("TeacherAssignments", fields: [teacherId], references: [id])
+  section        Section        @relation(fields: [sectionId], references: [id])
+  area           CurriculumArea @relation(fields: [areaId], references: [id])
+  academicYear   AcademicYear   @relation(fields: [academicYearId], references: [id])
+
+  @@unique([sectionId, areaId, academicYearId])
+  @@map("course_assignments")
+}
+
+// ===========================================
+// GRADES (CALIFICACIONES)
+// ===========================================
+
+model GradeRecord {
+  id            String     @id @default(uuid())
+  enrollmentId  String
+  competencyId  String
+  periodId      String
+  score         GradeScale // AD, A, B, C
+  numericScore  Decimal?   @db.Decimal(4, 2)
+  conclusion    String?    // Conclusión descriptiva
+  recordedBy    String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  enrollment    Enrollment     @relation(fields: [enrollmentId], references: [id])
+  competency    Competency     @relation(fields: [competencyId], references: [id])
+  period        AcademicPeriod @relation(fields: [periodId], references: [id])
+
+  @@unique([enrollmentId, competencyId, periodId])
+  @@index([enrollmentId])
+  @@map("grade_records")
+}
+
+// ===========================================
+// ATTENDANCE
+// ===========================================
+
+model Attendance {
+  id            String           @id @default(uuid())
+  enrollmentId  String
+  studentId     String
+  date          DateTime         @db.Date
+  status        AttendanceStatus
+  justification String?
+  recordedBy    String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  enrollment    Enrollment @relation(fields: [enrollmentId], references: [id])
+  student       Student    @relation(fields: [studentId], references: [id])
+
+  @@unique([enrollmentId, date])
+  @@index([studentId, date])
+  @@map("attendances")
+}
