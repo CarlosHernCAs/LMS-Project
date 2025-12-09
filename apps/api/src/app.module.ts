@@ -20,6 +20,7 @@ import { RbacModule, RolesGuard, PermissionsGuard } from './modules/rbac';
 import { AcademicModule } from './modules/academic';
 import { GradesModule } from './modules/grades';
 import { AttendanceModule } from './modules/attendance';
+import { DashboardModule } from './modules/dashboard';
 // import { ContentModule } from './modules/content/content.module';
 // import { MessagingModule } from './modules/messaging/messaging.module';
 
@@ -78,6 +79,7 @@ import { AttendanceModule } from './modules/attendance';
     // Módulos degradables (si fallan, el resto continúa)
     ReportsModule,
     AttendanceModule,
+    DashboardModule,
     // ContentModule,
     // MessagingModule,
   ],
