@@ -1,5 +1,6 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 
 import { configuration } from './config';
 
@@ -12,11 +13,12 @@ import { DatabaseModule } from './database/database.module';
 // Feature Modules
 import { HealthModule } from './modules/health/health.module';
 import { ReportsModule } from './modules/reports/reports.module';
-// import { AuthModule } from './modules/auth/auth.module';
-// import { UsersModule } from './modules/users/users.module';
-// import { TenantsModule } from './modules/tenants/tenants.module';
-// import { AcademicModule } from './modules/academic/academic.module';
-// import { GradesModule } from './modules/grades/grades.module';
+import { AuthModule, JwtAuthGuard } from './modules/auth';
+import { UsersModule } from './modules/users';
+import { TenantsModule, TenantMiddleware } from './modules/tenants';
+import { RbacModule, RolesGuard, PermissionsGuard } from './modules/rbac';
+import { AcademicModule } from './modules/academic';
+import { GradesModule } from './modules/grades';
 // import { AttendanceModule } from './modules/attendance/attendance.module';
 // import { ContentModule } from './modules/content/content.module';
 // import { MessagingModule } from './modules/messaging/messaging.module';
@@ -65,24 +67,40 @@ import { ReportsModule } from './modules/reports/reports.module';
     // Health checks (siempre disponible)
     HealthModule,
 
-    // Módulos de negocio
+    // Módulos core de negocio
+    AuthModule,
+    UsersModule,
+    TenantsModule,
+    RbacModule,
+    AcademicModule,
+    GradesModule,
+
+    // Módulos degradables
     ReportsModule,
-    // AuthModule,
-    // UsersModule,
-    // TenantsModule,
-    // AcademicModule,
-    // GradesModule,
     // AttendanceModule,
     // ContentModule,
     // MessagingModule,
   ],
   controllers: [],
-  providers: [],
+  providers: [
+    // Guards globales (orden importa: Auth -> Roles -> Permissions)
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: PermissionsGuard,
+    },
+  ],
 })
 export class AppModule implements NestModule {
-  configure(_consumer: MiddlewareConsumer) {
-    // Middlewares globales
-    // consumer.apply(TenantMiddleware).forRoutes('*');
-    // consumer.apply(LoggerMiddleware).forRoutes('*');
+  configure(consumer: MiddlewareConsumer) {
+    // Middleware de tenant para resolución multi-tenancy
+    consumer.apply(TenantMiddleware).forRoutes('*');
   }
 }
