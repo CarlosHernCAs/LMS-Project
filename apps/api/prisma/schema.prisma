@@ -21,6 +21,7 @@ enum Role {
   SUPER_ADMIN
   INSTITUTION_ADMIN
   ACADEMIC_COORDINATOR
+  SECRETARY
   TEACHER
   TUTOR
   STUDENT
@@ -53,6 +54,12 @@ enum AttendanceStatus {
   ABSENT
   LATE
   JUSTIFIED
+  EARLY_LEAVE
+}
+
+enum AttendanceType {
+  DAILY
+  CLASS
 }
 
 enum GradeScale {
@@ -341,6 +348,7 @@ model Section {
   tutor          User?           @relation("SectionTutor", fields: [tutorId], references: [id])
   enrollments    Enrollment[]
   assignments    CourseAssignment[]
+  attendances    Attendance[]
 
   @@unique([gradeId, academicYearId, name])
   @@map("sections")
@@ -361,7 +369,6 @@ model Enrollment {
   student        Student      @relation(fields: [studentId], references: [id])
   section        Section      @relation(fields: [sectionId], references: [id])
   academicYear   AcademicYear @relation(fields: [academicYearId], references: [id])
-  attendances    Attendance[]
   grades         GradeRecord[]
 
   @@unique([studentId, academicYearId])
@@ -387,6 +394,7 @@ model CurriculumArea {
   institution   Institution    @relation(fields: [institutionId], references: [id])
   competencies  Competency[]
   assignments   CourseAssignment[]
+  attendances   Attendance[]
 
   @@unique([institutionId, code, level])
   @@map("curriculum_areas")
@@ -456,20 +464,27 @@ model GradeRecord {
 // ===========================================
 
 model Attendance {
-  id            String           @id @default(uuid())
-  enrollmentId  String
-  studentId     String
-  date          DateTime         @db.Date
-  status        AttendanceStatus
-  justification String?
-  recordedBy    String?
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  id                  String           @id @default(uuid())
+  institutionId       String
+  studentId           String
+  sectionId           String
+  date                DateTime         @db.Date
+  status              AttendanceStatus
+  type                AttendanceType   @default(DAILY)
+  curriculumAreaId    String?          // Solo para asistencia por clase
+  observations        String?
+  justificationReason String?
+  recordedBy          String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 
-  enrollment    Enrollment @relation(fields: [enrollmentId], references: [id])
-  student       Student    @relation(fields: [studentId], references: [id])
+  student        Student         @relation(fields: [studentId], references: [id])
+  section        Section         @relation(fields: [sectionId], references: [id])
+  curriculumArea CurriculumArea? @relation(fields: [curriculumAreaId], references: [id])
 
-  @@unique([enrollmentId, date])
+  @@unique([studentId, sectionId, date, type, curriculumAreaId])
   @@index([studentId, date])
+  @@index([sectionId, date])
+  @@index([institutionId])
   @@map("attendances")
 }

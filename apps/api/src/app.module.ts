@@ -19,7 +19,7 @@ import { TenantsModule, TenantMiddleware } from './modules/tenants';
 import { RbacModule, RolesGuard, PermissionsGuard } from './modules/rbac';
 import { AcademicModule } from './modules/academic';
 import { GradesModule } from './modules/grades';
-// import { AttendanceModule } from './modules/attendance/attendance.module';
+import { AttendanceModule } from './modules/attendance';
 // import { ContentModule } from './modules/content/content.module';
 // import { MessagingModule } from './modules/messaging/messaging.module';
 
@@ -75,9 +75,9 @@ import { GradesModule } from './modules/grades';
     AcademicModule,
     GradesModule,
 
-    // Módulos degradables
+    // Módulos degradables (si fallan, el resto continúa)
     ReportsModule,
-    // AttendanceModule,
+    AttendanceModule,
     // ContentModule,
     // MessagingModule,
   ],
